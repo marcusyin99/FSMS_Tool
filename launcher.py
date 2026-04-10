@@ -1,32 +1,49 @@
 import subprocess
 import os
 import sys
-import updater
+import webbrowser
+import time
 
-def main():
-    # 1. Execute the update logic natively before locking Streamlit resources
+def launch():
+    # 1. Determine paths
+    base_path = os.path.dirname(os.path.abspath(sys.argv[0]))
+    python_exe = os.path.join(base_path, "python_bin", "python.exe")
+    
+    if not os.path.exists(python_exe):
+        python_exe = sys.executable
+
+    # 2. Run Update Engine
+    print("Checking for updates...")
     try:
-        updater.check_and_update()
+        subprocess.run([python_exe, "updater.py"], cwd=base_path, timeout=30)
     except Exception as e:
-        print(f"Bypassing updater due to error: {e}")
-        
-    # 2. Map coordinates for the portable environment
-    portable_python = os.path.join(os.getcwd(), "python_portable", "python.exe")
-    app_script = os.path.join(os.getcwd(), "app.py")
+        print(f"Update check skipped: {e}")
+
+    # 3. Launch Streamlit
+    print("Launching Company Toolbelt...")
+    cmd = [
+        python_exe, "-m", "streamlit", "run", "app.py",
+        "--server.port", "8501",
+        "--server.headless", "true",
+        "--browser.gatherUsageStats", "false"
+    ]
     
-    # 3. Suppress all child terminal popups
-    creationflags = 0x08000000 if os.name == 'nt' else 0
-    
-    if not os.path.exists(portable_python):
-        print("CRITICAL WARNING: Portable Python not found. Initiating System Python globally.")
-        portable_python = "python"
-        
-    print("Launching Streamlit Application invisibly...")
-    
-    subprocess.Popen(
-        [portable_python, "-m", "streamlit", "run", app_script], 
-        creationflags=creationflags
-    )
+    # We redirect output to a log file so we can see if it crashes
+    log_path = os.path.join(base_path, "latest_launch_log.txt")
+    with open(log_path, "w") as log_file:
+        proc = subprocess.Popen(
+            cmd, 
+            cwd=base_path, 
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+            stdout=log_file,
+            stderr=log_file
+        )
+
+    # 4. Manually open browser after a short delay to let server start
+    print("Opening browser...")
+    time.sleep(3)
+    webbrowser.open("http://localhost:8501")
+    print("Process complete. You can close this window.")
 
 if __name__ == "__main__":
-    main()
+    launch()

@@ -1,0 +1,44 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "D:\FSMS Tools\python_bin\streamlit\__main__.py", line 20, in <module>
+    main(prog_name="streamlit")
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\FSMS Tools\python_bin\click\core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "D:\FSMS Tools\python_bin\click\core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "D:\FSMS Tools\python_bin\click\core.py", line 1873, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "D:\FSMS Tools\python_bin\click\core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\FSMS Tools\python_bin\click\core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "D:\FSMS Tools\python_bin\streamlit\web\cli.py", line 251, in main_run
+    _main_run(path_str, args, flag_options=kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\FSMS Tools\python_bin\streamlit\web\cli.py", line 298, in _main_run
+    bootstrap.load_config_options(flag_options=flag_options or {})
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\FSMS Tools\python_bin\streamlit\web\bootstrap.py", line 326, in load_config_options
+    config.get_config_options(force_reparse=True, options_from_flags=options_from_flags)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\FSMS Tools\python_bin\streamlit\config.py", line 2835, in get_config_options
+    _on_config_parsed.send()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\FSMS Tools\python_bin\blinker\base.py", line 249, in send
+    result = receiver(sender, **kwargs)
+  File "D:\FSMS Tools\python_bin\streamlit\config.py", line 2969, in receiver
+    func_with_lock()
+    ~~~~~~~~~~~~~~^^
+  File "D:\FSMS Tools\python_bin\streamlit\config.py", line 2977, in func_with_lock
+    func()
+    ~~~~^^
+  File "D:\FSMS Tools\python_bin\streamlit\config.py", line 2854, in _check_conflicts
+    raise RuntimeError(
+        "server.port does not work when global.developmentMode is true."
+    )
+RuntimeError: server.port does not work when global.developmentMode is true.

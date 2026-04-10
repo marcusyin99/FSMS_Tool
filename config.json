@@ -1,7 +1,7 @@
 {
-    "display_name": "Marcus",
-    "employee_id": "95878",
+    "display_name": "",
+    "employee_id": "",
     "conn_timeout": 10,
     "heartbeat": true,
-    "accent_color": "Electric Purple"
+    "accent_color": "Neon Cyan"
 }
