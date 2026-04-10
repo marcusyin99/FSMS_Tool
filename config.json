@@ -3,5 +3,5 @@
     "employee_id": "",
     "conn_timeout": 10,
     "heartbeat": true,
-    "accent_color": "Neon Cyan"
+    "accent_color": ""
 }

@@ -7,7 +7,7 @@ st.set_page_config(page_title="Company Toolbelt", layout="wide")
 
 CONFIG_PATH = os.path.join(os.getcwd(), "config.json")
 DEFAULT_CONFIG = {
-    "display_name": "Marcus",
+    "display_name": "",
     "employee_id": "",
     "conn_timeout": 10,
     "heartbeat": True,
@@ -651,16 +651,22 @@ def render_settings():
     st.markdown("<br>", unsafe_allow_html=True)
 
 def main():
-    if not os.path.exists(CONFIG_PATH):
+    config = st.session_state.config
+    
+    # Trigger onboarding if fields are blank or just whitespace
+    name_val = str(config.get('display_name', '')).strip()
+    id_val = str(config.get('employee_id', '')).strip()
+    
+    if not name_val or not id_val:
         st.title("🚀 Welcome to the Company Toolbelt")
-        st.markdown("It looks like this is your first time launching the tool on this environment. Please initialize your profile constraints.")
+        st.markdown("It looks like your profile is incomplete. Please enter your identity to unlock Toolbelt access.")
         with st.form("setup_form"):
-            user = st.text_input("Display Name (e.g. Marcus)")
-            emp_id = st.text_input("Employee ID (e.g. CTC-001)")
+            user = st.text_input("Display Name (e.g. Marcus)", value=name_val)
+            emp_id = st.text_input("Employee ID (e.g. 95878)", value=id_val)
             submit = st.form_submit_button("Complete Setup")
             if submit:
                 if user.strip() and emp_id.strip():
-                    new_conf = load_config()
+                    new_conf = config.copy()
                     new_conf['display_name'] = user
                     new_conf['employee_id'] = emp_id
                     save_config(new_conf)
