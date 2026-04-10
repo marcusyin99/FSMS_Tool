@@ -1,10 +1,42 @@
 import streamlit as st
+import os
+import json
+import shutil
 
 st.set_page_config(page_title="Company Toolbelt", layout="wide")
 
-def inject_custom_css():
-    st.markdown(
-        """
+CONFIG_PATH = os.path.join(os.getcwd(), "config.json")
+DEFAULT_CONFIG = {
+    "display_name": "Marcus",
+    "employee_id": "",
+    "conn_timeout": 10,
+    "heartbeat": True,
+    "accent_color": "Neon Cyan"
+}
+
+def load_config():
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                return {**DEFAULT_CONFIG, **json.load(f)}
+        except: pass
+    return DEFAULT_CONFIG.copy()
+
+def save_config(cfg):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=4)
+
+def inject_custom_css(accent_color="Neon Cyan"):
+    colors = {
+        "Neon Cyan": {"hex": "#00d4ff", "rgb": "0, 212, 255"},
+        "Electric Purple": {"hex": "#b000ff", "rgb": "176, 0, 255"},
+        "CTC Blue": {"hex": "#0050b3", "rgb": "0, 80, 179"}
+    }
+    selected = colors.get(accent_color, colors["Neon Cyan"])
+    hex_code = selected["hex"]
+    rgb_code = selected["rgb"]
+    
+    css = """
         <style>
             /* 1. Global Aesthetics */
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
@@ -156,21 +188,43 @@ def inject_custom_css():
                 margin-bottom: -10px;
             }
         </style>
-        """,
-        unsafe_allow_html=True
-    )
-    
-inject_custom_css()
+    """
+    css = css.replace("#00d4ff", hex_code)
+    css = css.replace("0, 212, 255", rgb_code)
+    st.markdown(css, unsafe_allow_html=True)
+
+def cleanup_temp_files():
+    import time
+    folders = ["temp_processing"]
+    now = time.time()
+    for folder in folders:
+        target_path = os.path.join(os.getcwd(), folder)
+        if os.path.exists(target_path):
+            for item in os.listdir(target_path):
+                item_path = os.path.join(target_path, item)
+                try:
+                    # 86400 seconds = 24 hours
+                    if os.path.isfile(item_path) and os.stat(item_path).st_mtime < now - 86400:
+                        os.remove(item_path)
+                except Exception:
+                    pass
+
+# Call once per application evaluation run
+cleanup_temp_files()
 
 # Initialize session state variables
+if "config" not in st.session_state:
+    st.session_state.config = load_config()
+
+inject_custom_css(st.session_state.config.get("accent_color", "Neon Cyan"))    
+
 if "current_page" not in st.session_state:
     st.session_state.current_page = "🏠 Home / Dashboard"
 # Session ID is hardcoded
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
 
 def navigate_to(page_name):
     st.session_state.current_page = page_name
+    st.session_state.nav_radio = page_name
 
 def render_sidebar():
     try:
@@ -192,10 +246,10 @@ def render_sidebar():
     # Navigation pages
     pages = [
         "🏠 Home / Dashboard",
-        "📄 FSMS Job Sheet Tool (Existing logic)",
-        "💻 HP Warranty Checker",
+        "📄 Jobsheet Generator",
+        "💻 HP Model Checker",
         "🔍 Serial Number Grabber (Dell OPP)",
-        "📑 eFSR PDF Grabber",
+        "📑 Bulk eFSR downloader",
         "⚙️ Global Settings / Profile"
     ]
     
@@ -217,28 +271,53 @@ def render_sidebar():
     st.sidebar.divider()
     
     # Auth Status
-    st.sidebar.subheader("Global Auth Status")
-    if st.session_state.get('authenticated', False):
+    st.sidebar.subheader("Intranet Status")
+    import requests
+    vpn_connected = False
+    try:
+        # Fast 1.5s timeout probing the intranet
+        resp = requests.get("http://intranetapp.ctc-g.com.my", timeout=1.5)
+        if resp.status_code == 200:
+            vpn_connected = True
+    except requests.exceptions.Timeout:
+        st.toast("Intranet Ping Timeout (Server Busy or Slow Connection)", icon="⏳")
+    except:
+        pass
+    
+    if vpn_connected:
         st.sidebar.markdown(
-            """<div style="display: flex; align-items: center; padding: 12px; background: rgba(0, 255, 0, 0.05); border: 1px solid rgba(0, 255, 0, 0.4); border-radius: 8px;">
+            """<div title="Connected via Office LAN or VPN" style="display: flex; align-items: center; padding: 12px; background: rgba(0, 255, 0, 0.05); border: 1px solid rgba(0, 255, 0, 0.4); border-radius: 8px; cursor: help;">
                    <span class="pulsing-led"></span>
-                   <span style="color: #00ff00; font-weight: 600; letter-spacing: 0.5px;">System Online</span>
+                   <span style="color: #00ff00; font-weight: 600; letter-spacing: 0.5px;">Intranet Connected</span>
                </div>""", 
             unsafe_allow_html=True
         )
     else:
-        st.sidebar.warning("⚠️ Authentication Required")
+        st.sidebar.markdown(
+            """<div title="Please connect to company VPN to use these tools" style="display: flex; align-items: center; padding: 12px; background: rgba(255, 0, 0, 0.05); border: 1px solid rgba(255, 0, 0, 0.4); border-radius: 8px; cursor: help;">
+                   <span style="display: inline-block; width: 12px; height: 12px; background-color: #ff0000; border-radius: 50%; box-shadow: 0 0 10px #ff0000; margin-right: 12px;"></span>
+                   <span style="color: #ff0000; font-weight: 600; letter-spacing: 0.5px; line-height: 1.2;">Offline / VPN Required</span>
+               </div>""", 
+            unsafe_allow_html=True
+        )
         
     st.sidebar.markdown(
         """<div style='text-align: center; margin-top: 80px; padding-bottom: 10px; opacity: 0.15; font-size: 0.65rem; font-family: "Inter", sans-serif; letter-spacing: 1px;'>
-           DEVELOPED BY MARCUS ENG
+           DEVELOPED BY MARCUS ENG<br>v1.1.0
            </div>""", 
         unsafe_allow_html=True
     )
 
 def render_home():
-    st.markdown('<h1 class="gradient-header">Welcome to the Company Toolbelt</h1>', unsafe_allow_html=True)
-    st.caption("Your Central Hub for Internal Tools & Services")
+    display_name = st.session_state.config.get('display_name', '').strip()
+    header_str = f"Welcome back, {display_name}" if display_name else "Welcome to the Company Toolbelt"
+    st.markdown(f'<h1 class="gradient-header">{header_str}</h1>', unsafe_allow_html=True)
+    
+    emp_id = st.session_state.config.get('employee_id', '').strip()
+    if emp_id:
+        st.caption(f"Employee ID: {emp_id} | Your Central Hub for Internal Tools & Services")
+    else:
+        st.caption("Your Central Hub for Internal Tools & Services")
     
     st.markdown("### Available Tools")
     
@@ -246,32 +325,24 @@ def render_home():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.markdown("#### 📄 FSMS Tool")
-        st.write("Process HP warranty serial numbers from job sheets.")
-        if st.button("Open FSMS Tool", use_container_width=True):
-            navigate_to("📄 FSMS Job Sheet Tool (Existing logic)")
-            st.rerun()
+        st.markdown("#### 📄 Jobsheet Generator")
+        st.write("Bulk-print jobsheets and auto-fill spare parts requests.")
+        st.button("Open Jobsheet Generator", use_container_width=True, on_click=navigate_to, args=("📄 Jobsheet Generator",))
 
     with col2:
-        st.markdown("#### 💻 HP Warranty")
-        st.write("Automated bulk warranty lookups.")
-        if st.button("Open Warranty Tool", use_container_width=True):
-            navigate_to("💻 HP Warranty Checker")
-            st.rerun()
+        st.markdown("#### 💻 HP Model Checker")
+        st.write("Automated bulk model checker through serial numbers.")
+        st.button("Open Warranty Tool", use_container_width=True, on_click=navigate_to, args=("💻 HP Model Checker",))
 
     with col3:
         st.markdown("#### 🔍 S/N Grabber (Dell OPP)")
         st.write("Extract Serial Numbers dynamically from Customer Reference IDs.")
-        if st.button("Open Grabber", use_container_width=True):
-            navigate_to("🔍 Serial Number Grabber (Dell OPP)")
-            st.rerun()
+        st.button("Open Grabber", use_container_width=True, on_click=navigate_to, args=("🔍 Serial Number Grabber (Dell OPP)",))
             
     with col4:
-        st.markdown("#### 📑 eFSR PDF")
-        st.write("Extract and zip eFSR PDFs assigned to specific tickets.")
-        if st.button("Open eFSR Grabber", use_container_width=True):
-            navigate_to("📑 eFSR PDF Grabber")
-            st.rerun()
+        st.markdown("#### 📑 Bulk eFSR downloader")
+        st.write("Batch-download eFSR documents directly from ticket IDs.")
+        st.button("Open eFSR Grabber", use_container_width=True, on_click=navigate_to, args=("📑 Bulk eFSR downloader",))
 
     st.divider()
     
@@ -290,54 +361,128 @@ def render_home():
     st.markdown(terminal_html, unsafe_allow_html=True)
 
 def render_fsms_tool():
-    st.title("📄 FSMS Job Sheet Tool")
+    st.title("📄 Jobsheet Generator")
+    st.write("Bulk print jobsheets and autofilling spare parts request.")
     
-    st.write("Enter Ticket IDs (comma-separated or one per line) to process Job Sheets and fetch Spare Data.")
-    text_input = st.text_area("Ticket IDs")
-    
-    if st.button("Start Processing"):
-        if not text_input.strip():
-            st.warning("Please enter at least one Ticket ID.")
-            return
+    if "fsms_scanned_data" not in st.session_state:
+        st.session_state.fsms_scanned_data = None
+    if "fsms_selections" not in st.session_state:
+        st.session_state.fsms_selections = {}
 
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        log_expander = st.expander("Processing Logs", expanded=True)
-        log_container = log_expander.empty()
-        
-        log_msgs = []
-        def log_cb(msg):
-            status_text.write(f"**Status:** {msg}")
-            log_msgs.append(msg)
-            # Join list into one string separated by double space/newlines for markdown rendering
-            log_container.markdown("\n\n".join([f"`{m}`" for m in log_msgs]))
+    text_input = st.text_area("Ticket IDs (one per line or comma-separated)", height=150)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔍 Scan & Fetch Data", use_container_width=True):
+            if not text_input.strip():
+                st.warning("Please enter at least one Ticket ID.")
+            else:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                log_expander = st.expander("Scanning Logs", expanded=True)
+                log_container = log_expander.empty()
                 
-        def progress_cb(val):
-            progress_bar.progress(val)
-        
-        from fsms_logic import FSMSFetcher
-        # Initialize the unified fetcher using global Auth stored previously
-        hardcoded_session_id = "155aa70338de898c5a16b6b45c9399fa"
-        hardcoded_cookie = "_ga=GA1.3.301266867.1748954739; _ga_3JE4R8NPJQ=GS2.1.s1765772355$o9$g1$t1765772575$j60$l0$h0; 155aa70338de898c5a16b6b45c9399fa=95878; 95878=7145996093"
-        fetcher = FSMSFetcher(
-            cookie_string=hardcoded_cookie,
-            session_id=hardcoded_session_id
-        )
-        
-        # Pass the input arguments alongside the Streamlit UI callbacks
-        pdf_path = fetcher.bulk_fetch(text_input, hardcoded_session_id, log_cb=log_cb, progress_cb=progress_cb)
-        
-        if pdf_path:
-            st.success("✅ Process finalized. Your Job Sheet PDF is ready for download.")
-            with open(pdf_path, "rb") as pdf_file:
-                st.download_button(
-                    label="⬇️ Download Generated Job Sheets PDF",
-                    data=pdf_file.read(),
-                    file_name="FSMS_JobSheets_Export.pdf",
-                    mime="application/pdf"
+                log_msgs = []
+                def log_cb(msg):
+                    status_text.write(f"**Status:** {msg}")
+                    log_msgs.append(msg)
+                    log_container.markdown("\n\n".join([f"`{m}`" for m in log_msgs]))
+                        
+                def progress_cb(val):
+                    progress_bar.progress(val)
+                
+                from fsms_logic import FSMSFetcher
+                hardcoded_session_id = "155aa70338de898c5a16b6b45c9399fa"
+                hardcoded_cookie = "_ga=GA1.3.301266867.1748954739; _ga_3JE4R8NPJQ=GS2.1.s1765772355$o9$g1$t1765772575$j60$l0$h0; 155aa70338de898c5a16b6b45c9399fa=95878; 95878=7145996093"
+                fetcher = FSMSFetcher(cookie_string=hardcoded_cookie, session_id=hardcoded_session_id)
+                
+                st.session_state.fsms_scanned_data = fetcher.prepare_bulk_data(text_input, hardcoded_session_id, log_cb=log_cb, progress_cb=progress_cb)
+                
+                # Pre-populate selections: if only 1 part, auto-select it.
+                st.session_state.fsms_selections = {}
+                for tid, data in st.session_state.fsms_scanned_data.items():
+                    if len(data["parts"]) == 1:
+                        st.session_state.fsms_selections[tid] = [data["parts"][0]]
+                    else:
+                        st.session_state.fsms_selections[tid] = []
+
+    with col2:
+        if st.button("🗑️ Reset Tool", use_container_width=True):
+            st.session_state.fsms_scanned_data = None
+            st.session_state.fsms_selections = {}
+            st.rerun()
+
+    if st.session_state.fsms_scanned_data:
+        st.divider()
+        st.subheader("🛠️ Part Selection Checkpoint")
+        st.write("For tickets with multiple parts, please select the ones you want to include (up to 3).")
+
+        for tid, data in st.session_state.fsms_scanned_data.items():
+            parts = data["parts"]
+            if not parts:
+                st.info(f"Ticket **{tid}**: No spare parts found. Jobsheet will be printed blank.")
+                continue
+
+            if len(parts) == 1:
+                st.success(f"Ticket **{tid}**: Found 1 part. (Auto-selected)")
+                # Already selected in pre-populate
+            else:
+                st.info(f"Ticket **{tid}**: {len(parts)} parts found. Please select:")
+                options = [f"Part #{i+1} - {p['item_name']} ({p['part_no']})" for i, p in enumerate(parts)]
+                
+                # Determine current selections labels
+                curr_sel = st.session_state.fsms_selections.get(tid, [])
+                default_labels = []
+                for p in curr_sel:
+                    for i, orig_p in enumerate(parts):
+                        if p == orig_p:
+                            default_labels.append(f"Part #{i+1} - {orig_p['item_name']} ({orig_p['part_no']})")
+                            break
+
+                selected_labels = st.multiselect(
+                    f"Select parts for {tid}",
+                    options=options,
+                    default=default_labels,
+                    key=f"sel_{tid}",
+                    max_selections=3
                 )
-        else:
-            st.warning("⚠️ No printable PDF was generated (Data was likely missing or inaccessible).")
+                
+                # Map labels back to part objects
+                new_sel_objs = []
+                for label in selected_labels:
+                    idx = int(label.split('#')[1].split(' ')[0]) - 1
+                    new_sel_objs.append(parts[idx])
+                st.session_state.fsms_selections[tid] = new_sel_objs
+
+        st.divider()
+        if st.button("🚀 Generate Final Jobsheet PDF", type="primary", use_container_width=True):
+            status_text = st.empty()
+            def log_cb(msg):
+                status_text.write(f"**PDF Engine:** {msg}")
+
+            from fsms_logic import FSMSFetcher
+            hardcoded_session_id = "155aa70338de898c5a16b6b45c9399fa"
+            hardcoded_cookie = "_ga=GA1.3.301266867.1748954739; _ga_3JE4R8NPJQ=GS2.1.s1765772355$o9$g1$t1765772575$j60$l0$h0; 155aa70338de898c5a16b6b45c9399fa=95878; 95878=7145996093"
+            fetcher = FSMSFetcher(cookie_string=hardcoded_cookie, session_id=hardcoded_session_id)
+
+            pdf_path = fetcher.generate_pdf_from_selections(
+                st.session_state.fsms_scanned_data, 
+                st.session_state.fsms_selections, 
+                log_cb=log_cb
+            )
+
+            if pdf_path:
+                st.success("✅ PDF Built successfully!")
+                with open(pdf_path, "rb") as pdf_file:
+                    st.download_button(
+                        label="⬇️ Download Final PDF",
+                        data=pdf_file.read(),
+                        file_name="FSMS_JobSheets_Export.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+            else:
+                st.error("Failed to generate PDF.")
 
 def render_warranty_tool():
     st.title("💻 HP Warranty Checker")
@@ -448,28 +593,81 @@ def render_serial_grabber():
 
 def render_settings():
     st.title("⚙️ Global Settings / Profile")
+    st.markdown("Customize your isolated Toolbelt environment. Changes are saved locally.")
     
-    st.markdown("Your active session profile constraints.")
-    st.write("Logged in as: **admin123**")
+    c = st.session_state.config
     
-    if st.button("Log Out"):
-        st.session_state.authenticated = False
+    with st.expander("👤 User Identity", expanded=True):
+        new_name = st.text_input("Display Name", value=c.get('display_name', ''))
+        new_id = st.text_input("Employee ID", value=c.get('employee_id', ''))
+        
+    with st.expander("📡 Network Config", expanded=True):
+        new_timeout = st.slider("Connection Timeout (Seconds)", min_value=1, max_value=60, value=int(c.get('conn_timeout', 10)))
+        new_heartbeat = st.toggle("Auto-Test Heartbeat", value=bool(c.get('heartbeat', True)))
+        
+    with st.expander("🎨 Appearance", expanded=True):
+        themes = ["Neon Cyan", "Electric Purple", "CTC Blue"]
+        curr_theme = c.get('accent_color', 'Neon Cyan')
+        new_color = st.selectbox("Accent Color", options=themes, index=themes.index(curr_theme) if curr_theme in themes else 0)
+        
+    with st.expander("🗑️ Storage Initialization", expanded=False):
+        st.warning("Warning: This will permanently delete all temporary and generated files tracked locally.")
+        del_confirm = st.text_input("Type 'deleteall' to confirm wipe:")
+        if st.button("Wipe Local Temp Folder", type="primary"):
+            if del_confirm.strip() == "deleteall":
+                folders = ["temp_processing"]
+                deleted_count = 0
+                for folder in folders:
+                    target_path = os.path.join(os.getcwd(), folder)
+                    if os.path.exists(target_path):
+                        for item in os.listdir(target_path):
+                            item_path = os.path.join(target_path, item)
+                            try:
+                                if os.path.isfile(item_path):
+                                    os.remove(item_path)
+                                elif os.path.isdir(item_path):
+                                    shutil.rmtree(item_path)
+                                deleted_count += 1
+                            except Exception:
+                                pass
+                st.success(f"Successfully purged {deleted_count} items from system caches.")
+            else:
+                st.error("Text did not match 'deleteall'. Aborted.")
+                
+    st.divider()
+    
+    if st.button("Save Configuration & Reload"):
+        c['display_name'] = new_name
+        c['employee_id'] = new_id
+        c['conn_timeout'] = new_timeout
+        c['heartbeat'] = new_heartbeat
+        c['accent_color'] = new_color
+        
+        save_config(c)
+        st.session_state.config = c
+        st.success("Configuration successfully persisted!")
         st.rerun()
 
+    st.markdown("<br>", unsafe_allow_html=True)
+
 def main():
-    if not st.session_state.get('authenticated', False):
-        st.title("🔒 Login Required")
-        st.write("Please sign in to access the Company Toolbelt.")
-        with st.form("login_form"):
-            user = st.text_input("Username")
-            pwd = st.text_input("Password", type="password")
-            submit = st.form_submit_button("Login")
+    if not os.path.exists(CONFIG_PATH):
+        st.title("🚀 Welcome to the Company Toolbelt")
+        st.markdown("It looks like this is your first time launching the tool on this environment. Please initialize your profile constraints.")
+        with st.form("setup_form"):
+            user = st.text_input("Display Name (e.g. Marcus)")
+            emp_id = st.text_input("Employee ID (e.g. CTC-001)")
+            submit = st.form_submit_button("Complete Setup")
             if submit:
-                if user == "admin123" and pwd == "CTC123":
-                    st.session_state.authenticated = True
+                if user.strip() and emp_id.strip():
+                    new_conf = load_config()
+                    new_conf['display_name'] = user
+                    new_conf['employee_id'] = emp_id
+                    save_config(new_conf)
+                    st.session_state.config = new_conf
                     st.rerun()
                 else:
-                    st.error("Invalid username or password.")
+                    st.error("Please fill in both fields.")
         return
 
     render_sidebar()
@@ -478,13 +676,13 @@ def main():
     
     if page == "🏠 Home / Dashboard":
         render_home()
-    elif page == "📄 FSMS Job Sheet Tool (Existing logic)":
+    elif page == "📄 Jobsheet Generator":
         render_fsms_tool()
-    elif page == "💻 HP Warranty Checker":
+    elif page == "💻 HP Model Checker":
         render_warranty_tool()
     elif page == "🔍 Serial Number Grabber (Dell OPP)":
         render_serial_grabber()
-    elif page == "📑 eFSR PDF Grabber":
+    elif page == "📑 Bulk eFSR downloader":
         from efsr_grabber import render_efsr_tool
         render_efsr_tool()
     elif page == "⚙️ Global Settings / Profile":

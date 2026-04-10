@@ -31,6 +31,13 @@ class FSMSFetcher:
             else:
                 log_cb(f"[ERROR] Ticket {ticket_id}: Authentication Failed. Check cookie expiration.")
                 return "", response.text
+        except requests.exceptions.Timeout as e:
+            logging.error(f"[Job Sheet] Timeout on Ticket {ticket_id}: {e}")
+            try:
+                import streamlit as st
+                st.toast("Server Busy / Slow Connection", icon="⏳")
+            except: pass
+            return "", ""
         except requests.exceptions.RequestException as e:
             logging.error(f"[Job Sheet] Failed to load Ticket {ticket_id}: {e}")
             return "", ""
@@ -46,100 +53,126 @@ class FSMSFetcher:
             soup = BeautifulSoup(raw_html, 'html.parser')
             trs = soup.find_all('tr')
             num_rows = len(trs)
-            item_name = ""
-            serial_no = ""
-            part_no = ""
+            parts = []
             if len(trs) > 2:
-                row_found = False
                 for row_idx in range(2, len(trs)):
                     tds = trs[row_idx].find_all(['td', 'th'])
                     if len(tds) >= 8:
                         first_cell_text = tds[0].get_text(strip=True)
-                        if first_cell_text.startswith("1."):
+                        if re.match(r'^\d+\.', first_cell_text):
                             item_name = tds[5].get_text(strip=True).replace('\xa0', ' ')
                             serial_no = tds[6].get_text(strip=True).replace('\xa0', ' ')
                             part_no = tds[7].get_text(strip=True).replace('\xa0', ' ')
+                            
+                            if not item_name:
+                                item_name = part_no or "Unknown Category"
+                                
                             log_cb(f"MATCH FOUND: [Item: {item_name}] [S/N: {serial_no}] [P/N: {part_no}]")
-                            row_found = True
-                            break
-                if not row_found:
-                    log_cb(" [FAILSAFE] No row starting with '1.' was found beginning from index 2.")
+                            parts.append({
+                                "item_name": item_name,
+                                "serial_no": serial_no,
+                                "part_no": part_no
+                            })
+                if not parts:
+                    log_cb(" [FAILSAFE] No parts starting with a digit/dot were found.")
             else:
                 log_cb(f" [FAILSAFE] Only {num_rows} <tr> tags found. Table structure might be missing.")
             
-            if not item_name and len(trs) > 2:
+            if not parts and len(trs) > 2:
                 first_target_row = trs[2].get_text(strip=True, separator=' | ')[:150]
-                log_cb(f" [FAILSAFE] 'Item Name' empty! Expected row 2: {first_target_row}...")
+                log_cb(f" [FAILSAFE] Target fallback. Expected row 2: {first_target_row}...")
                 if "HP Pro Mini" in raw_html:
                     log_cb(" [FAILSAFE] 'HP Pro Mini' exists. HTML Index layout shifted!")
                 else:
                     log_cb(" [FAILSAFE] 'HP Pro Mini' NOT found. Page may be empty or access-denied.")
-                debug_file = f"debug_spare_{ticket_id}.html"
+                temp_dir = os.path.join(os.getcwd(), "temp_processing")
+                if not os.path.exists(temp_dir):
+                    os.makedirs(temp_dir, exist_ok=True)
+                debug_file = os.path.join(temp_dir, f"debug_spare_{ticket_id}.html")
                 try:
                     with open(debug_file, "w", encoding="utf-8") as f:
                         f.write(raw_html)
                     log_cb(f" [FAILSAFE] Auto-Dumped RAW HTML to '{debug_file}'.")
                 except Exception as eval_err:
                     log_cb(f" [FAILSAFE] Could not dump file: {eval_err}")
-            return {"item_name": item_name, "serial_no": serial_no, "part_no": part_no}, num_rows, raw_html
+            return parts, num_rows, raw_html
+        except requests.exceptions.Timeout as e:
+            logging.error(f"[Spare Data] Timeout on Ticket {ticket_id}: {e}")
+            try:
+                import streamlit as st
+                st.toast("Server Busy / Slow Connection", icon="⏳")
+            except: pass
+            return [], num_rows, raw_html
         except requests.exceptions.RequestException as e:
             logging.error(f"[Spare Data] Failed to load Ticket {ticket_id}: {e}")
-            return {"item_name": "", "serial_no": "", "part_no": ""}, num_rows, raw_html
+            return [], num_rows, raw_html
 
-    def bulk_fetch(self, ticket_ids_str, session_id, log_cb=print, progress_cb=None):
+    def prepare_bulk_data(self, ticket_ids_str, session_id, log_cb=print, progress_cb=None):
         if isinstance(ticket_ids_str, str):
             ticket_ids = [t.strip() for t in ticket_ids_str.replace('\n', ',').split(',') if t.strip()]
         else:
             ticket_ids = ticket_ids_str
-           
-        pdf = FPDF()
-        any_pdf_generated = False
+            
+        scanned_data = {}
         total = len(ticket_ids)
         if total == 0:
             log_cb("No tickets to process.")
             if progress_cb: progress_cb(1.0)
-            return None
-       
+            return scanned_data
+            
         for idx, ticket_id in enumerate(ticket_ids):
             if progress_cb:
                 progress_cb(idx / total)
-            log_cb(f"\n--- Processing Ticket: {ticket_id} ---")
-           
+            log_cb(f"\n--- Scanning Ticket: {ticket_id} ---")
+            
             js_text, js_raw_html = self.fetch_job_sheet(ticket_id, session_id, log_cb)
             if not js_text:
                 continue
-               
-            spare_data, num_rows, spare_raw_html = self.fetch_spare_data(ticket_id, session_id, log_cb)
-           
-            item_n = str(spare_data.get('item_name', '')).strip()
-            part_n = str(spare_data.get('part_no', '')).strip()
-            ser_n = str(spare_data.get('serial_no', '')).strip()
-           
+                
+            parts, num_rows, spare_raw_html = self.fetch_spare_data(ticket_id, session_id, log_cb)
+            
             log_cb(f"--- DIAGNOSTIC START: Ticket {ticket_id} ---")
             log_cb(f"JOB SHEET HTML LENGTH: {len(js_raw_html)} chars, SPARE TABLE ROWS FOUND: {num_rows}")
-            log_cb(f"EXTRACTED: Item '{item_n}', P/N '{part_n}', S/N '{ser_n}'")
-           
-            if not item_n and not part_n and not ser_n:
+            log_cb(f"EXTRACTED: {len(parts)} part(s) found.")
+            
+            if not parts:
                 log_cb(f" [CLEANUP] Ticket {ticket_id} yielded no spare data.")
-                continue
-               
-            any_pdf_generated = True
+                
+            scanned_data[ticket_id] = {
+                "js_text": js_text,
+                "parts": parts
+            }
+            
+        if progress_cb:
+            progress_cb(1.0)
+            
+        return scanned_data
 
+    def generate_pdf_from_selections(self, scanned_data, user_selections, log_cb=print):
+        pdf = FPDF()
+        any_pdf_generated = False
+        
+        for ticket_id, data in scanned_data.items():
+            js_text = data["js_text"]
+            selected_parts = user_selections.get(ticket_id, [])
+            
+            log_cb(f"\n--- Injecting Parts into Ticket: {ticket_id} ---")
+            any_pdf_generated = True
+            
             pdf.add_page()
             pdf.set_auto_page_break(auto=False)
-            MAX_Y_LIMIT = 275.0
-           
+            
             lines = js_text.splitlines()
-           
+            
             injected_rows = 0
-            if item_n or part_n or ser_n:
-                i_mock = textwrap.wrap(item_n, width=25) if item_n else []
-                p_mock = textwrap.wrap(part_n, width=15) if part_n else []
-                s_mock = textwrap.wrap(ser_n, width=20) if ser_n else []
-                injected_rows = max(len(i_mock), len(p_mock), len(s_mock))
-               
+            for part in selected_parts:
+                i_mock = textwrap.wrap(part.get("item_name", ""), width=25)
+                p_mock = textwrap.wrap(part.get("part_no", ""), width=15)
+                s_mock = textwrap.wrap(part.get("serial_no", ""), width=20)
+                injected_rows += max(len(i_mock), len(p_mock), len(s_mock), 1)
+                
             total_lines = len(lines) + injected_rows + 1
-           
+            
             available_height = 275.0
             if total_lines * 5.0 <= available_height:
                 line_height = 5.0
@@ -151,12 +184,11 @@ class FSMSFetcher:
                 scale_factor = line_height / 5.0
                 base_font_size = 9.0 * scale_factor
                 data_font_size = 8.0 * scale_factor
-           
+            
             spare_request_found = False
             spare_return_found = False
-           
+            
             for line in lines:
-                current_y = pdf.get_y()
                 upper_line = line.upper()
                 if "SPARE REQUEST" in upper_line:
                     spare_request_found = True
@@ -165,56 +197,60 @@ class FSMSFetcher:
                     spare_request_found = False
                     spare_return_found = True
 
-                if (spare_request_found or spare_return_found) and line.strip().startswith("1.") and "___" in line:
-                    if spare_request_found:
-                        i_val, p_val, s_val = item_n, part_n, ser_n
-                        spare_request_found = False
-                    else:
-                        i_val, p_val, s_val = "", "", ""
-                        spare_return_found = False
-                       
-                    if i_val or p_val or s_val:
+                stripped_line = line.strip()
+                match = re.match(r'^(\d+)\.\s*___', stripped_line)
+                
+                # Inject a single corresponding part based on the line digit
+                if (spare_request_found or spare_return_found) and match:
+                    line_digit = int(match.group(1))
+                    
+                    if spare_request_found and line_digit <= len(selected_parts):
+                        # Match current line digit (e.g., 1, 2, 3) to the index in selection array
+                        part_obj = selected_parts[line_digit - 1]
+                        
                         pdf.set_font("Courier", style="B", size=data_font_size)
                         pdf.set_text_color(0, 0, 0)
-                       
-                        i_val = str(i_val).strip()
-                        p_val = str(p_val).strip()
-                        s_val = str(s_val).strip()
-                       
+                        
+                        i_val = str(part_obj.get("item_name", "")).strip()
+                        p_val = str(part_obj.get("part_no", "")).strip()
+                        s_val = str(part_obj.get("serial_no", "")).strip()
+                        
                         i_lines = textwrap.wrap(i_val, width=25) if i_val else []
                         p_lines = textwrap.wrap(p_val, width=15) if p_val else []
                         s_lines = textwrap.wrap(s_val, width=20) if s_val else []
-                       
-                        max_lines = max(len(i_lines), len(p_lines), len(s_lines))
-                       
+                        
+                        max_lines = max(len(i_lines), len(p_lines), len(s_lines), 1)
+                        
                         for i in range(max_lines):
                             y_pos = pdf.get_y() + (line_height * 0.7)
-                           
                             x_item = 10 + (5 * scale_factor)
                             x_part = 10 + (55 * scale_factor)
                             x_serial = 10 + (82 * scale_factor)
-                           
+                            
                             if i < len(i_lines):
                                 pdf.text(x=x_item, y=y_pos, text=i_lines[i])
                             if i < len(p_lines):
                                 pdf.text(x=x_part, y=y_pos, text=p_lines[i])
                             if i < len(s_lines):
                                 pdf.text(x=x_serial, y=y_pos, text=s_lines[i])
-                               
+                                
                             pdf.cell(0, line_height * 0.8, text="", new_x="LMARGIN", new_y="NEXT")
-                           
+                            
                         pdf.set_y(pdf.get_y() + (line_height * 0.2))
-                       
+
+                # Always print the original template line (preserving 1. ___, 2. ___, etc.)
                 pdf.set_font("Courier", size=base_font_size)
                 pdf.set_text_color(0, 0, 0)
                 pdf.cell(0, line_height, text=line, new_x="LMARGIN", new_y="NEXT")
 
-        if progress_cb:
-            progress_cb(1.0)
-                       
         if any_pdf_generated and pdf.page_no() > 0:
-            output_filename = "FSMS_JobSheets_Export.pdf"
-            output_path = os.path.join(os.getcwd(), output_filename)
+            import os
+            temp_dir = os.path.join(os.getcwd(), "temp_processing")
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir, exist_ok=True)
+            import uuid
+            output_filename = f"FSMS_JobSheets_Export_{uuid.uuid4().hex[:8]}.pdf"
+            output_path = os.path.join(temp_dir, output_filename)
             pdf.output(output_path)
             log_cb(f"\n[INFO] PDF generated securely: {output_path}")
             return output_path

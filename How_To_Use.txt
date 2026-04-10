@@ -1,0 +1,5 @@
+Company Toolbelt - How To Use
+
+1. Connect to the Corporate VPN or plug into the Office LAN.
+2. Run Start_Toolbelt.exe
+3. Enjoy! The system will automatically stay updated over-the-air.

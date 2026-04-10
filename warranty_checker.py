@@ -27,6 +27,8 @@ def check_warranty(serial_number):
             return extract_product_name(response.text)
         else:
             return f"HTTP Error {response.status_code}"
+    except requests.exceptions.Timeout:
+        return "HP Firewall/Bot Protection Timeout"
     except Exception as e:
         return f"Request Error: {str(e)}"
 
