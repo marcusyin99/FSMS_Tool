@@ -1,0 +1,8 @@
+requests
+pyperclip
+tqdm
+plyer
+streamlit
+beautifulsoup4
+fpdf2
+
