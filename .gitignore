@@ -1,14 +1,21 @@
 # User-specific configuration
-config.json
+**/config.json
 
 # Python environment
-python_bin/
-__pycache__/
+**/python_bin/
+**/__pycache__/
 *.pyc
+.ipynb_checkpoints/
 
 # Temporary files and logs
-temp_processing/
-latest_launch_log.txt
+**/temp_processing/
+**/latest_launch_log.txt
+*.db
+results.csv
+*.log
 
 # Distributable binaries
 Start_Toolbelt.exe
+dist/
+build/
+*.spec
