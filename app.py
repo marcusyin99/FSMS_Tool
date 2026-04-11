@@ -11,7 +11,8 @@ DEFAULT_CONFIG = {
     "employee_id": "",
     "conn_timeout": 10,
     "heartbeat": True,
-    "accent_color": "Neon Cyan"
+    "accent_color": "Neon Cyan",
+    "is_online": False
 }
 
 def load_config():
@@ -187,6 +188,17 @@ def inject_custom_css(accent_color="Neon Cyan"):
                 font-size: 3rem;
                 margin-bottom: -10px;
             }
+
+            /* Status Dots */
+            .status-dot {
+                height: 10px; width: 10px; border-radius: 50%; display: inline-block; margin-right: 8px;
+            }
+            .dot-online { 
+                background-color: #00ff00; box-shadow: 0 0 10px #00ff00; 
+            }
+            .dot-offline { 
+                background-color: #888888; 
+            }
         </style>
     """
     css = css.replace("#00d4ff", hex_code)
@@ -220,11 +232,31 @@ inject_custom_css(st.session_state.config.get("accent_color", "Neon Cyan"))
 
 if "current_page" not in st.session_state:
     st.session_state.current_page = "🏠 Home / Dashboard"
-# Session ID is hardcoded
+
+if "is_online" not in st.session_state:
+    st.session_state.is_online = st.session_state.config.get("is_online", False)
+
+if "last_presence_sync" not in st.session_state:
+    st.session_state.last_presence_sync = 0
+
+from fsms_logic import TeamPresence
+# Clean stale records once per session startup
+if "already_cleaned" not in st.session_state:
+    TeamPresence.clean_stale_records()
+    st.session_state.already_cleaned = True
 
 def navigate_to(page_name):
     st.session_state.current_page = page_name
-    st.session_state.nav_radio = page_name
+    # Sync the sidebar dropdown so it doesn't fight with the dashboard buttons
+    tools = [
+        "📄 Jobsheet Generator",
+        "💻 Multi-Brand Warranty Checker",
+        "🔍 Serial Number Grabber (Dell OPP)",
+        "📑 Bulk eFSR downloader",
+        "📂 Bulk PDF Merger"
+    ]
+    if page_name in tools:
+        st.session_state.tool_select = page_name
 
 def render_sidebar():
     try:
@@ -243,34 +275,105 @@ def render_sidebar():
         pass # fallback silently if logo missing
     st.sidebar.title("Company Toolbelt")
     
-    # Navigation pages
-    pages = [
-        "🏠 Home / Dashboard",
+    # 1. High-Level Navigation (Home)
+    is_home = (st.session_state.current_page == "🏠 Home / Dashboard")
+    if st.sidebar.button("🏠 Home / Dashboard", use_container_width=True, key="home_btn", 
+                         type="primary" if is_home else "secondary"):
+        st.session_state.current_page = "🏠 Home / Dashboard"
+        st.rerun()
+
+    st.sidebar.markdown("<br>", unsafe_allow_html=True)
+    
+    # 2. Tools Section
+    st.sidebar.markdown("### 🛠️ Core Utilities")
+    tools = [
         "📄 Jobsheet Generator",
-        "💻 HP Model Checker",
+        "💻 Multi-Brand Warranty Checker",
         "🔍 Serial Number Grabber (Dell OPP)",
         "📑 Bulk eFSR downloader",
-        "⚙️ Global Settings / Profile"
+        "📂 Bulk PDF Merger"
     ]
     
-    # Determine the index for the radio button based on session state
-    current_index = pages.index(st.session_state.current_page) if st.session_state.current_page in pages else 0
+    # Check if currently on a tool page
+    current_tool_index = 0
+    if st.session_state.current_page in tools:
+        current_tool_index = tools.index(st.session_state.current_page)
     
-    selected_page = st.sidebar.radio(
-        "Navigation",
-        options=pages,
-        index=current_index,
-        key="nav_radio"
+    def on_tool_change():
+        st.session_state.current_page = st.session_state.tool_select
+        
+    selected_tool = st.sidebar.selectbox(
+        "Select a Tool",
+        options=tools,
+        index=current_tool_index,
+        key="tool_select",
+        label_visibility="collapsed",
+        on_change=on_tool_change
     )
-    
-    # If the user clicks a different radio option, sync session state and rerun
-    if selected_page != st.session_state.current_page:
-        st.session_state.current_page = selected_page
-        st.rerun()
 
     st.sidebar.divider()
     
-    # Auth Status
+    # 3. Team Presence Section (Middle)
+    st.sidebar.subheader("Team Status Board")
+    team_data = TeamPresence.fetch_team()
+    
+    if team_data is None:
+        st.sidebar.error("⚠️ Team Board Unavailable")
+    elif not team_data:
+        st.sidebar.info("No one else is online.")
+    else:
+        from datetime import datetime
+        processed_team = []
+        for member in team_data:
+            m_last_seen = datetime.fromisoformat(member['last_seen'])
+            is_active = (datetime.now() - m_last_seen).total_seconds() < 900
+            is_online = member['is_visible'] and is_active
+            processed_team.append({**member, "online": is_online})
+            
+        sorted_team = sorted(processed_team, key=lambda x: x['online'], reverse=True)
+            
+        for member in sorted_team:
+            m_name = member['name']
+            m_status = member['current_status'] or "Active"
+            m_emp_id = member['emp_id']
+            is_online = member['online']
+            is_self = m_emp_id == st.session_state.config.get('employee_id')
+            label = f"**{m_name}** {'(You)' if is_self else ''}"
+            dot_class = "dot-online" if is_online else "dot-offline"
+            display_status = m_status if is_online else "Currently Offline"
+            
+            with st.sidebar.container(height=250):
+                for member in sorted_team:
+                    m_name = member['name']
+                    m_status = member['current_status'] or "Active"
+                    m_emp_id = member['emp_id']
+                    is_online = member['online']
+                    is_self = m_emp_id == st.session_state.config.get('employee_id')
+                    label = f"**{m_name}** {'(You)' if is_self else ''}"
+                    dot_class = "dot-online" if is_online else "dot-offline"
+                    display_status = m_status if is_online else "Currently Offline"
+                    
+                    st.markdown(f"""
+                        <div style="padding: 6px 10px; background: rgba(255, 255, 255, 0.03); border-radius: 6px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.04);">
+                            <div style="display: flex; align-items: center; margin-bottom: 2px;">
+                                <span class="status-dot {dot_class}"></span>
+                                <div style="font-size: 0.85rem; color: #e6f1ff;">{label}</div>
+                            </div>
+                            <div style="font-size: 0.7rem; opacity: 0.5; margin-left: 18px;">{display_status}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+            break # Exit outer loop once container is built
+
+    st.sidebar.divider()
+
+    # 4. System Navigation (Settings) at the bottom
+    is_settings = (st.session_state.current_page == "⚙️ Global Settings / Profile")
+    if st.sidebar.button("⚙️ Settings & Profile", use_container_width=True, key="settings_btn",
+                         type="primary" if is_settings else "secondary"):
+        st.session_state.current_page = "⚙️ Global Settings / Profile"
+        st.rerun()
+
+    # Auth Status (Existing)
     st.sidebar.subheader("Intranet Status")
     import requests
     vpn_connected = False
@@ -303,7 +406,7 @@ def render_sidebar():
         
     st.sidebar.markdown(
         """<div style='text-align: center; margin-top: 80px; padding-bottom: 10px; opacity: 0.15; font-size: 0.65rem; font-family: "Inter", sans-serif; letter-spacing: 1px;'>
-           DEVELOPED BY MARCUS ENG<br>v1.1.0
+           DEVELOPED BY MARCUS ENG<br>v1.2.0
            </div>""", 
         unsafe_allow_html=True
     )
@@ -322,7 +425,8 @@ def render_home():
     st.markdown("### Available Tools")
     
     # Create Tool Cards
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
+    col4, col5, col6 = st.columns(3)
     
     with col1:
         st.markdown("#### 📄 Jobsheet Generator")
@@ -330,9 +434,9 @@ def render_home():
         st.button("Open Jobsheet Generator", use_container_width=True, on_click=navigate_to, args=("📄 Jobsheet Generator",))
 
     with col2:
-        st.markdown("#### 💻 HP Model Checker")
-        st.write("Automated bulk model checker through serial numbers.")
-        st.button("Open Warranty Tool", use_container_width=True, on_click=navigate_to, args=("💻 HP Model Checker",))
+        st.markdown("#### 💻 Multi-Brand Warranty Checker")
+        st.write("Automated bulk model & warranty checker for HP, Lenovo & Dell.")
+        st.button("Open Warranty Tool", use_container_width=True, on_click=navigate_to, args=("💻 Multi-Brand Warranty Checker",))
 
     with col3:
         st.markdown("#### 🔍 S/N Grabber (Dell OPP)")
@@ -343,6 +447,11 @@ def render_home():
         st.markdown("#### 📑 Bulk eFSR downloader")
         st.write("Batch-download eFSR documents directly from ticket IDs.")
         st.button("Open eFSR Grabber", use_container_width=True, on_click=navigate_to, args=("📑 Bulk eFSR downloader",))
+
+    with col5:
+        st.markdown("#### 📂 Bulk PDF Merger")
+        st.write("Combine multiple PDF files into a single document instantly.")
+        st.button("Open PDF Merger", use_container_width=True, on_click=navigate_to, args=("📂 Bulk PDF Merger",))
 
     st.divider()
     
@@ -485,8 +594,8 @@ def render_fsms_tool():
                 st.error("Failed to generate PDF.")
 
 def render_warranty_tool():
-    st.title("💻 HP Warranty Checker")
-    st.write("Fetch serial numbers from your clipboard to automatically pull HP warranty info.")
+    st.title("💻 Multi-Brand Warranty Checker")
+    st.write("Bulk-check warranty status for HP, Lenovo & Dell devices.")
     
     if st.button("📋 Fetch from Clipboard"):
         import pyperclip
@@ -518,19 +627,47 @@ def render_warranty_tool():
         results = []
         for i, sn in enumerate(serial_numbers):
             status_text.write(f"Checking: **{sn}**...")
-            product_name = check_warranty(sn)
+            info = check_warranty(sn)
             
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            results.append({"Timestamp": timestamp, "Serial Number": sn, "Product Name": product_name})
+            full_url = info.get('url') if info.get('url') else "None"
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            results.append({
+                "Time": timestamp, 
+                "Brand": info.get('brand', 'Unknown'),
+                "S/N": info.get('sn', sn).upper(), 
+                "Product Name": info.get('name', 'Unknown'), 
+                "Start": info.get('start', 'N/A'),
+                "End": info.get('end', 'N/A'),
+                "Status": info.get('status', 'N/A'),
+                "Official Site": full_url
+            })
             
             progress_bar.progress((i + 1) / len(serial_numbers))
-            time.sleep(0.5)
+            time.sleep(0.3) 
             
-        status_text.success("✅ All warranties checked successfully!")
-        st.dataframe(results, use_container_width=True)
+        status_text.success(f"✅ {len(serial_numbers)} warranties checked!")
+        
+        # Enhanced Display with Deep Links and Multi-Brand Data
+        st.dataframe(
+            results, 
+            use_container_width=True,
+            column_config={
+                "Official Site": st.column_config.LinkColumn(
+                    "Official Site",
+                    help="Manufacturer Support Page",
+                    validate="^https://.*",
+                    display_text="View on Official Site ↗"
+                ),
+                "Status": st.column_config.TextColumn(
+                    "Status",
+                    help="Warranty Status from Manufacturer"
+                )
+            },
+            hide_index=True
+        )
         
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=["Timestamp", "Serial Number", "Product Name"])
+        writer = csv.DictWriter(output, fieldnames=["Time", "Brand", "S/N", "Product Name", "Start", "End", "Status", "Official Site"])
         writer.writeheader()
         writer.writerows(results)
         
@@ -590,6 +727,44 @@ def render_serial_grabber():
             file_name="serial_grabber_results.csv",
             mime="text/csv"
         )
+
+def render_pdf_merger():
+    st.title("📂 Bulk PDF Merger")
+    st.write("Upload multiple PDF files to combine them into a single document. Files will be merged in the order they appear below.")
+    
+    uploaded_files = st.file_uploader(
+        "Select PDF files", 
+        type="pdf", 
+        accept_multiple_files=True,
+        help="You can drag and drop multiple files here."
+    )
+    
+    if uploaded_files:
+        st.subheader("Files to Merge")
+        # Display list of filenames for verification
+        for idx, f in enumerate(uploaded_files):
+            st.write(f"{idx + 1}. {f.name} ({(f.size/1024):.1f} KB)")
+        
+        st.divider()
+        
+        if st.button("🚀 Merge PDFs", type="primary", use_container_width=True):
+            with st.spinner("Merging documents..."):
+                try:
+                    from fsms_logic import merge_pdfs
+                    merged_buffer = merge_pdfs(uploaded_files)
+                    
+                    st.success("✅ PDFs successfully merged!")
+                    st.download_button(
+                        label="⬇️ Download Merged PDF",
+                        data=merged_buffer,
+                        file_name="Merged_Documents.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Failed to merge PDFs. One or more files might be corrupted or protected. Error: {e}")
+    else:
+        st.info("Please upload at least one PDF file to begin.")
 
 def render_settings():
     st.title("⚙️ Global Settings / Profile")
@@ -676,6 +851,38 @@ def main():
                     st.error("Please fill in both fields.")
         return
 
+    # Header with visibility toggle
+    head_col1, head_col2 = st.columns([5, 1])
+    with head_col2:
+        is_online = st.toggle("Go Online", value=st.session_state.is_online, key="online_toggle")
+        if is_online != st.session_state.is_online:
+            st.session_state.is_online = is_online
+            # Persist to config.json
+            st.session_state.config["is_online"] = is_online
+            save_config(st.session_state.config)
+            
+            # Immediate sync upon toggle change
+            TeamPresence.sync_presence(
+                st.session_state.config.get('employee_id'),
+                st.session_state.config.get('display_name'),
+                "Browsing Toolbelt",
+                "",
+                is_online
+            )
+            st.rerun()
+
+    # Automatic background presence sync every 5 mins if online
+    import time
+    if st.session_state.is_online and (time.time() - st.session_state.last_presence_sync > 300):
+        TeamPresence.sync_presence(
+            st.session_state.config.get('employee_id'),
+            st.session_state.config.get('display_name'),
+            "Active",
+            "",
+            True
+        )
+        st.session_state.last_presence_sync = time.time()
+
     render_sidebar()
     
     page = st.session_state.current_page
@@ -684,13 +891,15 @@ def main():
         render_home()
     elif page == "📄 Jobsheet Generator":
         render_fsms_tool()
-    elif page == "💻 HP Model Checker":
+    elif page == "💻 Multi-Brand Warranty Checker":
         render_warranty_tool()
     elif page == "🔍 Serial Number Grabber (Dell OPP)":
         render_serial_grabber()
     elif page == "📑 Bulk eFSR downloader":
         from efsr_grabber import render_efsr_tool
         render_efsr_tool()
+    elif page == "📂 Bulk PDF Merger":
+        render_pdf_merger()
     elif page == "⚙️ Global Settings / Profile":
         render_settings()
 

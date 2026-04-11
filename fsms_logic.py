@@ -6,6 +6,30 @@ import os
 from fpdf import FPDF
 import textwrap
 import re
+import io
+import sqlite3
+from datetime import datetime, timedelta
+from pypdf import PdfWriter, PdfReader
+
+def merge_pdfs(uploaded_files):
+    """
+    Merges a list of uploaded PDF files into a single BytesIO buffer.
+    """
+    merger = PdfWriter()
+    try:
+        for uploaded_file in uploaded_files:
+            # pypdf can read from a file-like object directly
+            reader = PdfReader(uploaded_file)
+            merger.append(reader)
+        
+        output = io.BytesIO()
+        merger.write(output)
+        merger.close()
+        output.seek(0)
+        return output
+    except Exception as e:
+        merger.close()
+        raise e
 
 logging.basicConfig(level=logging.ERROR, format='%(levelname)s: %(message)s')
 
@@ -376,3 +400,70 @@ class FSMSFetcher:
                 
         if progress_cb: progress_cb(1.0)
         return results
+
+class TeamPresence:
+    DB_PATH = os.path.join(os.getcwd(), "temp_processing", "team_status.db")
+
+    @staticmethod
+    def _get_conn():
+        os.makedirs(os.path.dirname(TeamPresence.DB_PATH), exist_ok=True)
+        conn = sqlite3.connect(TeamPresence.DB_PATH, timeout=10)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS presence (
+                emp_id TEXT PRIMARY KEY,
+                name TEXT,
+                current_status TEXT,
+                task_details TEXT,
+                last_seen TIMESTAMP,
+                is_visible BOOLEAN
+            )
+        """)
+        return conn
+
+    @staticmethod
+    def sync_presence(emp_id, name, status, task, visible):
+        try:
+            with TeamPresence._get_conn() as conn:
+                if visible:
+                    now = datetime.now()
+                    conn.execute("""
+                        INSERT INTO presence (emp_id, name, current_status, task_details, last_seen, is_visible)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(emp_id) DO UPDATE SET
+                            name=excluded.name,
+                            current_status=excluded.current_status,
+                            task_details=excluded.task_details,
+                            last_seen=excluded.last_seen,
+                            is_visible=excluded.is_visible
+                    """, (emp_id, name, status, task, now, True))
+                else:
+                    conn.execute("""
+                        UPDATE presence SET 
+                            current_status='Offline/Hidden',
+                            is_visible=0
+                        WHERE emp_id=?
+                    """, (emp_id,))
+        except Exception as e:
+            logging.error(f"Presence sync failed: {e}")
+
+    @staticmethod
+    def clean_stale_records():
+        try:
+            with TeamPresence._get_conn() as conn:
+                limit = datetime.now() - timedelta(days=90)
+                conn.execute("DELETE FROM presence WHERE last_seen < ?", (limit,))
+        except Exception as e:
+            logging.error(f"Record cleanup failed: {e}")
+
+    @staticmethod
+    def fetch_team():
+        try:
+            with TeamPresence._get_conn() as conn:
+                conn.row_factory = sqlite3.Row
+                # Return all known members to show online/offline status
+                # Sorted by those most recently seen
+                cursor = conn.execute("SELECT * FROM presence ORDER BY last_seen DESC")
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logging.error(f"Fetch team failed: {e}")
+            return None

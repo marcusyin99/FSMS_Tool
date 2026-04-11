@@ -1,0 +1,14 @@
+# User-specific configuration
+config.json
+
+# Python environment
+python_bin/
+__pycache__/
+*.pyc
+
+# Temporary files and logs
+temp_processing/
+latest_launch_log.txt
+
+# Distributable binaries
+Start_Toolbelt.exe

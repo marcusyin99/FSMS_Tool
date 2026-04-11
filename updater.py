@@ -1,10 +1,12 @@
 import requests
 import os
+import subprocess
+import sys
 
 # CONFIGURATION
-# Replace this URL with your actual Raw GitHub repository path
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/marcusyin99/FSMS_Tool/main/"
-FILES_TO_UPDATE = ["app.py", "fsms_logic.py", "warranty_checker.py", "efsr_grabber.py"]
+# Expanded list to include the updater itself and requirements
+FILES_TO_UPDATE = ["app.py", "fsms_logic.py", "warranty_checker.py", "efsr_grabber.py", "updater.py", "requirements.txt"]
 VERSION_FILE = "version.txt"
 
 def get_local_version():
@@ -16,7 +18,6 @@ def get_local_version():
 def update():
     print("Checking for updates...")
     try:
-        # 1. Check Version
         response = requests.get(GITHUB_RAW_URL + VERSION_FILE, timeout=5)
         if response.status_code != 200:
             print("Could not reach update server.")
@@ -28,17 +29,26 @@ def update():
         if remote_version != local_version:
             print(f"New version found: {remote_version} (Local: {local_version})")
             
-            # 2. Download Files
+            req_updated = False
             for filename in FILES_TO_UPDATE:
                 print(f"Updating {filename}...")
                 file_resp = requests.get(GITHUB_RAW_URL + filename, timeout=10)
                 if file_resp.status_code == 200:
                     with open(filename, "w", encoding="utf-8") as f:
                         f.write(file_resp.text)
+                    if filename == "requirements.txt":
+                        req_updated = True
                 else:
                     print(f"Failed to download {filename}")
             
-            # 3. Update local version file
+            # If requirements.txt changed, automatically install new packages
+            if req_updated:
+                print("New dependencies detected. Installing...")
+                try:
+                    subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], check=True)
+                except Exception as e:
+                    print(f"Pip install failed: {e}")
+
             with open(VERSION_FILE, "w") as f:
                 f.write(remote_version)
             

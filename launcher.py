@@ -25,7 +25,8 @@ def launch():
         python_exe, "-m", "streamlit", "run", "app.py",
         "--server.port", "8501",
         "--server.headless", "true",
-        "--browser.gatherUsageStats", "false"
+        "--browser.gatherUsageStats", "false",
+        "--global.developmentMode", "false"
     ]
     
     # We redirect output to a log file so we can see if it crashes
