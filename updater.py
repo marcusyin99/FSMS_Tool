@@ -6,7 +6,7 @@ import sys
 # CONFIGURATION
 GITHUB_RAW_URL = "https://raw.githubusercontent.com/marcusyin99/FSMS_Tool/main/"
 # Expanded list to include the updater itself and requirements
-FILES_TO_UPDATE = ["app.py", "fsms_logic.py", "warranty_checker.py", "efsr_grabber.py", "updater.py", "requirements.txt"]
+FILES_TO_UPDATE = ["app.py", "fsms_logic.py", "warranty_checker.py", "efsr_grabber.py", "pdf_compressor.py", "updater.py", "requirements.txt"]
 VERSION_FILE = "version.txt"
 
 def get_local_version():

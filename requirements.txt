@@ -7,3 +7,4 @@ pyperclip
 tqdm
 plyer
 pypdf
+pymupdf

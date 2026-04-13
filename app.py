@@ -253,7 +253,8 @@ def navigate_to(page_name):
         "💻 Multi-Brand Warranty Checker",
         "🔍 Serial Number Grabber (Dell OPP)",
         "📑 Bulk eFSR downloader",
-        "📂 Bulk PDF Merger"
+        "📂 Bulk PDF Merger",
+        "🗜️ PDF Compressor"
     ]
     if page_name in tools:
         st.session_state.tool_select = page_name
@@ -291,7 +292,8 @@ def render_sidebar():
         "💻 Multi-Brand Warranty Checker",
         "🔍 Serial Number Grabber (Dell OPP)",
         "📑 Bulk eFSR downloader",
-        "📂 Bulk PDF Merger"
+        "📂 Bulk PDF Merger",
+        "🗜️ PDF Compressor"
     ]
     
     # Check if currently on a tool page
@@ -452,6 +454,11 @@ def render_home():
         st.markdown("#### 📂 Bulk PDF Merger")
         st.write("Combine multiple PDF files into a single document instantly.")
         st.button("Open PDF Merger", use_container_width=True, on_click=navigate_to, args=("📂 Bulk PDF Merger",))
+
+    with col6:
+        st.markdown("#### 🗜️ PDF Compressor")
+        st.write("Reduce PDF file sizes while maintaining quality.")
+        st.button("Open PDF Compressor", use_container_width=True, on_click=navigate_to, args=("🗜️ PDF Compressor",))
 
     st.divider()
     
@@ -766,6 +773,72 @@ def render_pdf_merger():
     else:
         st.info("Please upload at least one PDF file to begin.")
 
+def render_pdf_compressor():
+    st.title("🗜️ PDF Compressor")
+    st.write("Reduce the file size of your PDFs while maintaining 150+ DPI quality for images.")
+    
+    uploaded_file = st.file_uploader(
+        "Upload a PDF to compress", 
+        type="pdf", 
+        help="Ensure the PDF isn't password protected."
+    )
+    
+    if uploaded_file:
+        st.info(f"Original file size: {(uploaded_file.size / 1024 / 1024):.2f} MB")
+        
+        compress_level = st.select_slider(
+            "Compression Strength",
+            options=["Lossless (Safe)", "Mild (150 DPI)", "Moderate (100 DPI)", "Extreme (72 DPI)"],
+            value="Lossless (Safe)",
+            help="Higher compression reduces file size more, but degrades image quality."
+        )
+        
+        level_map = {
+            "Lossless (Safe)": 0,
+            "Mild (150 DPI)": 1,
+            "Moderate (100 DPI)": 2,
+            "Extreme (72 DPI)": 3
+        }
+        
+        if st.button("🚀 Compress PDF", type="primary", use_container_width=True):
+            with st.spinner("Compressing..."):
+                import tempfile
+                import os
+                from pdf_compressor import compress_pdf
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_in:
+                    tmp_in.write(uploaded_file.getbuffer())
+                    temp_in_path = tmp_in.name
+                
+                temp_out_path = temp_in_path + "_compressed.pdf"
+                
+                result = compress_pdf(temp_in_path, temp_out_path, compression_level=level_map[compress_level])
+                
+                if result.get("status") == "success":
+                    st.success("✅ Compression complete!")
+                    
+                    mc1, mc2 = st.columns(2)
+                    mc1.metric(label="Percentage Reduction", value=f"{result['percentage_reduction']}%", delta=f"-{(result['original_size'] - result['new_size']) / 1024 / 1024:.2f} MB")
+                    mc2.metric(label="Final PDF Size", value=f"{result['new_size'] / 1024 / 1024:.2f} MB")
+                    
+                    with open(temp_out_path, "rb") as f:
+                        st.download_button(
+                            label="⬇️ Download Compressed PDF",
+                            data=f.read(),
+                            file_name=f"Compressed_{uploaded_file.name}",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                else:
+                    st.error(f"Failed to compress: {result.get('message')}")
+                    
+                try:
+                    os.unlink(temp_in_path)
+                    if os.path.exists(temp_out_path):
+                        os.unlink(temp_out_path)
+                except Exception:
+                    pass
+
 def render_settings():
     st.title("⚙️ Global Settings / Profile")
     st.markdown("Customize your isolated Toolbelt environment. Changes are saved locally.")
@@ -900,6 +973,8 @@ def main():
         render_efsr_tool()
     elif page == "📂 Bulk PDF Merger":
         render_pdf_merger()
+    elif page == "🗜️ PDF Compressor":
+        render_pdf_compressor()
     elif page == "⚙️ Global Settings / Profile":
         render_settings()
 
