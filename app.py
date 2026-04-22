@@ -254,7 +254,8 @@ def navigate_to(page_name):
         "🔍 Serial Number Grabber (Dell OPP)",
         "📑 Bulk eFSR downloader",
         "📂 Bulk PDF Merger",
-        "🗜️ PDF Compressor"
+        "🗜️ PDF Compressor",
+        "📥 FSMS Attachment Downloader"
     ]
     if page_name in tools:
         st.session_state.tool_select = page_name
@@ -293,7 +294,8 @@ def render_sidebar():
         "🔍 Serial Number Grabber (Dell OPP)",
         "📑 Bulk eFSR downloader",
         "📂 Bulk PDF Merger",
-        "🗜️ PDF Compressor"
+        "🗜️ PDF Compressor",
+        "📥 FSMS Attachment Downloader"
     ]
     
     # Check if currently on a tool page
@@ -408,7 +410,7 @@ def render_sidebar():
         
     st.sidebar.markdown(
         """<div style='text-align: center; margin-top: 80px; padding-bottom: 10px; opacity: 0.15; font-size: 0.65rem; font-family: "Inter", sans-serif; letter-spacing: 1px;'>
-           DEVELOPED BY MARCUS ENG<br>v1.2.0
+           DEVELOPED BY MARCUS ENG<br>v1.4.0
            </div>""", 
         unsafe_allow_html=True
     )
@@ -459,6 +461,12 @@ def render_home():
         st.markdown("#### 🗜️ PDF Compressor")
         st.write("Reduce PDF file sizes while maintaining quality.")
         st.button("Open PDF Compressor", use_container_width=True, on_click=navigate_to, args=("🗜️ PDF Compressor",))
+
+    col7, col8, col9 = st.columns(3)
+    with col7:
+        st.markdown("#### 📥 FSMS Attachment Downloader")
+        st.write("Scrape metadata and automatically download and rename attachments.")
+        st.button("Open Attachment Downloader", use_container_width=True, on_click=navigate_to, args=("📥 FSMS Attachment Downloader",))
 
     st.divider()
     
@@ -975,6 +983,9 @@ def main():
         render_pdf_merger()
     elif page == "🗜️ PDF Compressor":
         render_pdf_compressor()
+    elif page == "📥 FSMS Attachment Downloader":
+        from attachment_downloader import render_attachment_downloader
+        render_attachment_downloader()
     elif page == "⚙️ Global Settings / Profile":
         render_settings()
 
